@@ -75,16 +75,16 @@ function check_product()
     fi
 
     if (echo -n $1 | grep -q -e "^cm_") ; then
-       CM_BUILD=$(echo -n $1 | sed -e 's/^cm_//g')
-       export BUILD_NUMBER=$((date +%s%N ; echo $CM_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
+       RIDON_BUILD=$(echo -n $1 | sed -e 's/^cm_//g')
+       export BUILD_NUMBER=$((date +%s%N ; echo $RIDON_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
     elif (echo -n $1 | grep -q -e "^ridon_") ; then
-       CM_BUILD=$(echo -n $1 | sed -e 's/^ridon_//g')
-       export BUILD_NUMBER=$((date +%s%N ; echo $CM_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
+       RIDON_BUILD=$(echo -n $1 | sed -e 's/^ridon_//g')
+       export BUILD_NUMBER=$((date +%s%N ; echo $RIDON_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
     else
 
-       CM_BUILD=
+       RIDON_BUILD=
     fi
-    export CM_BUILD
+    export RIDON_BUILD
 
         TARGET_PRODUCT=$1 \
         TARGET_BUILD_VARIANT= \
@@ -500,7 +500,7 @@ function print_lunch_menu()
        echo "  (ohai, koush!)"
     fi
     echo
-    if [ "z${CM_DEVICES_ONLY}" != "z" ]; then
+    if [ "z${RIDON_DEVICES_ONLY}" != "z" ]; then
        echo "Breakfast menu... pick a combo:"
     else
        echo "Lunch menu... pick a combo:"
@@ -514,7 +514,7 @@ function print_lunch_menu()
         i=$(($i+1))
     done | column
 
-    if [ "z${CM_DEVICES_ONLY}" != "z" ]; then
+    if [ "z${RIDON_DEVICES_ONLY}" != "z" ]; then
        echo "... and don't forget the bacon!"
     fi
 
@@ -537,7 +537,7 @@ function breakfast()
 {
     target=$1
     local variant=$2
-    CM_DEVICES_ONLY="true"
+    RIDON_DEVICES_ONLY="true"
     unset LUNCH_MENU_CHOICES
     add_lunch_combo full-eng
     for f in `/bin/ls vendor/cm/vendorsetup.sh 2> /dev/null`
@@ -712,7 +712,7 @@ function tapas()
 function eat()
 {
     if [ "$OUT" ] ; then
-        MODVERSION=$(get_build_var CM_VERSION)
+        MODVERSION=$(get_build_var RIDON_VERSION)
         ZIPFILE=cm-$MODVERSION.zip
         ZIPPATH=$OUT/$ZIPFILE
         if [ ! -f $ZIPPATH ] ; then
@@ -728,7 +728,7 @@ function eat()
             done
             echo "Device Found.."
         fi
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
     then
         # if adbd isn't root we can't write to /cache/recovery/
         adb root
@@ -750,7 +750,7 @@ EOF
     fi
     return $?
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $RIDON_BUILD, run away!"
     fi
 }
 
@@ -1654,7 +1654,7 @@ function installboot()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 > /dev/null
     adb wait-for-online remount
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
     then
         adb push $OUT/boot.img /cache/
         for i in $OUT/system/lib/modules/*;
@@ -1665,7 +1665,7 @@ function installboot()
         adb shell chmod 644 /system/lib/modules/*
         echo "Installation complete."
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $RIDON_BUILD, run away!"
     fi
 }
 
@@ -1699,13 +1699,13 @@ function installrecovery()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 >> /dev/null
     adb wait-for-online remount
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
     then
         adb push $OUT/recovery.img /cache/
         adb shell dd if=/cache/recovery.img of=$PARTITION
         echo "Installation complete."
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $RIDON_BUILD, run away!"
     fi
 }
 
@@ -2052,7 +2052,7 @@ function dopush()
         echo "Device Found."
     fi
 
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$CM_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
     then
     # retrieve IP and PORT info if we're using a TCP connection
     TCPIPPORT=$(adb devices | egrep '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+[^0-9]+' \
@@ -2151,7 +2151,7 @@ EOF
     rm -f $OUT/.log
     return 0
     else
-        echo "The connected device does not appear to be $CM_BUILD, run away!"
+        echo "The connected device does not appear to be $RIDON_BUILD, run away!"
     fi
 }
 
@@ -2168,7 +2168,7 @@ function repopick() {
 function fixup_common_out_dir() {
     common_out_dir=$(get_build_var OUT_DIR)/target/common
     target_device=$(get_build_var TARGET_DEVICE)
-    if [ ! -z $CM_FIXUP_COMMON_OUT ]; then
+    if [ ! -z $RIDON_FIXUP_COMMON_OUT ]; then
         if [ -d ${common_out_dir} ] && [ ! -L ${common_out_dir} ]; then
             mv ${common_out_dir} ${common_out_dir}-${target_device}
             ln -s ${common_out_dir}-${target_device} ${common_out_dir}
