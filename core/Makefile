@@ -879,8 +879,8 @@ ifneq ($(OTA_PACKAGE_SIGNING_KEY),)
     PRODUCT_EXTRA_RECOVERY_KEYS := $(DEFAULT_SYSTEM_DEV_CERTIFICATE)
 else
     PRODUCT_EXTRA_RECOVERY_KEYS += \
-        build/target/product/security/cm \
-        build/target/product/security/cm-devkey \
+        build/target/product/security/ridon \
+        build/target/product/security/ridon-devkey \
         build/target/product/security/bacon
 endif
 
@@ -1645,7 +1645,7 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	   $(if $(OEM_OTA_CONFIG), -o $(OEM_OTA_CONFIG)) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 
-RIDON_TARGET_PACKAGE := $(PRODUCT_OUT)/cm-$(RIDON_VERSION).zip
+RIDON_TARGET_PACKAGE := $(PRODUCT_OUT)/ridon-$(RIDON_VERSION).zip
 
 .PHONY: otapackage bacon
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
