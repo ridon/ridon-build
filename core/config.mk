@@ -645,6 +645,5 @@ ifneq ($(CM_BUILD),)
 ## last, to avoid accidental resetting by device configs
 $(eval include vendor/cm/sepolicy/sepolicy.mk)
 endif
->>>>>>> c/cm-12.0
 
 include $(BUILD_SYSTEM)/dumpvar.mk
