@@ -25,6 +25,8 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - aospremote: Add git remote for matching AOSP repository
 - cafremote: Add git remote for matching CodeAurora repository.
 - mka:      Builds using SCHED_BATCH on all processors
+- mkap:     Builds the module(s) using mka and pushes them to the device.
+- cmka:     Cleans and builds using mka.
 - reposync: Parallel repo sync using ionice and SCHED_BATCH
 - repopick: Utility to fetch changes from Gerrit.
 - installboot: Installs a boot.img to the connected device.
@@ -77,11 +79,7 @@ function check_product()
     if (echo -n $1 | grep -q -e "^cm_") ; then
        RIDON_BUILD=$(echo -n $1 | sed -e 's/^cm_//g')
        export BUILD_NUMBER=$((date +%s%N ; echo $RIDON_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
-    elif (echo -n $1 | grep -q -e "^ridon_") ; then
-       RIDON_BUILD=$(echo -n $1 | sed -e 's/^ridon_//g')
-       export BUILD_NUMBER=$((date +%s%N ; echo $RIDON_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
     else
-
        RIDON_BUILD=
     fi
     export RIDON_BUILD
@@ -728,7 +726,7 @@ function eat()
             done
             echo "Device Found.."
         fi
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.ridon.device=$RIDON_BUILD");
     then
         # if adbd isn't root we can't write to /cache/recovery/
         adb root
@@ -1234,6 +1232,107 @@ function gdbclient()
 
 }
 
+function dddclient()
+{
+   local OUT_ROOT=$(get_abs_build_var PRODUCT_OUT)
+   local OUT_SYMBOLS=$(get_abs_build_var TARGET_OUT_UNSTRIPPED)
+   local OUT_SO_SYMBOLS=$(get_abs_build_var TARGET_OUT_SHARED_LIBRARIES_UNSTRIPPED)
+   local OUT_VENDOR_SO_SYMBOLS=$(get_abs_build_var TARGET_OUT_VENDOR_SHARED_LIBRARIES_UNSTRIPPED)
+   local OUT_EXE_SYMBOLS=$(get_symbols_directory)
+   local PREBUILTS=$(get_abs_build_var ANDROID_PREBUILTS)
+   local ARCH=$(get_build_var TARGET_ARCH)
+   local GDB
+   case "$ARCH" in
+       arm) GDB=arm-linux-androideabi-gdb;;
+       arm64) GDB=arm-linux-androideabi-gdb; GDB64=aarch64-linux-android-gdb;;
+       mips|mips64) GDB=mips64el-linux-android-gdb;;
+       x86) GDB=x86_64-linux-android-gdb;;
+       x86_64) GDB=x86_64-linux-android-gdb;;
+       *) echo "Unknown arch $ARCH"; return 1;;
+   esac
+
+   if [ "$OUT_ROOT" -a "$PREBUILTS" ]; then
+       local EXE="$1"
+       if [ "$EXE" ] ; then
+           EXE=$1
+           if [[ $EXE =~ ^[^/].* ]] ; then
+               EXE="system/bin/"$EXE
+           fi
+       else
+           EXE="app_process"
+       fi
+
+       local PORT="$2"
+       if [ "$PORT" ] ; then
+           PORT=$2
+       else
+           PORT=":5039"
+       fi
+
+       local PID="$3"
+       if [ "$PID" ] ; then
+           if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
+               PID=`pid $3`
+               if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
+                   # that likely didn't work because of returning multiple processes
+                   # try again, filtering by root processes (don't contain colon)
+                   PID=`adb shell ps | \grep $3 | \grep -v ":" | awk '{print $2}'`
+                   if [[ ! "$PID" =~ ^[0-9]+$ ]]
+                   then
+                       echo "Couldn't resolve '$3' to single PID"
+                       return 1
+                   else
+                       echo ""
+                       echo "WARNING: multiple processes matching '$3' observed, using root process"
+                       echo ""
+                   fi
+               fi
+           fi
+           adb forward "tcp$PORT" "tcp$PORT"
+           local USE64BIT="$(is64bit $PID)"
+           adb shell gdbserver$USE64BIT $PORT --attach $PID &
+           sleep 2
+       else
+               echo ""
+               echo "If you haven't done so already, do this first on the device:"
+               echo "    gdbserver $PORT /system/bin/$EXE"
+                   echo " or"
+               echo "    gdbserver $PORT --attach <PID>"
+               echo ""
+       fi
+
+       OUT_SO_SYMBOLS=$OUT_SO_SYMBOLS$USE64BIT
+       OUT_VENDOR_SO_SYMBOLS=$OUT_VENDOR_SO_SYMBOLS$USE64BIT
+
+       echo >|"$OUT_ROOT/gdbclient.cmds" "set solib-absolute-prefix $OUT_SYMBOLS"
+       echo >>"$OUT_ROOT/gdbclient.cmds" "set solib-search-path $OUT_SO_SYMBOLS:$OUT_SO_SYMBOLS/hw:$OUT_SO_SYMBOLS/ssl/engines:$OUT_SO_SYMBOLS/drm:$OUT_SO_SYMBOLS/egl:$OUT_SO_SYMBOLS/soundfx:$OUT_VENDOR_SO_SYMBOLS:$OUT_VENDOR_SO_SYMBOLS/hw:$OUT_VENDOR_SO_SYMBOLS/egl"
+       echo >>"$OUT_ROOT/gdbclient.cmds" "source $ANDROID_BUILD_TOP/development/scripts/gdb/dalvik.gdb"
+       echo >>"$OUT_ROOT/gdbclient.cmds" "target remote $PORT"
+       # Enable special debugging for ART processes.
+       if [[ $EXE =~ (^|/)(app_process|dalvikvm)(|32|64)$ ]]; then
+          echo >> "$OUT_ROOT/gdbclient.cmds" "art-on"
+       fi
+       echo >>"$OUT_ROOT/gdbclient.cmds" ""
+
+       local WHICH_GDB=
+       # 64-bit exe found
+       if [ "$USE64BIT" != "" ] ; then
+           WHICH_GDB=$ANDROID_TOOLCHAIN/$GDB64
+       # 32-bit exe / 32-bit platform
+       elif [ "$(get_build_var TARGET_2ND_ARCH)" = "" ]; then
+           WHICH_GDB=$ANDROID_TOOLCHAIN/$GDB
+       # 32-bit exe / 64-bit platform
+       else
+           WHICH_GDB=$ANDROID_TOOLCHAIN_2ND_ARCH/$GDB
+       fi
+
+       ddd --debugger $WHICH_GDB -x "$OUT_ROOT/gdbclient.cmds" "$OUT_EXE_SYMBOLS/$EXE"
+  else
+       echo "Unable to determine build system output dir."
+   fi
+}
+
+
 case `uname -s` in
     Darwin)
         function sgrep()
@@ -1568,21 +1667,13 @@ function godir () {
 function cmremote()
 {
     git remote rm cmremote 2> /dev/null
-    if [ ! -d .git ]
-    then
-        echo .git directory not found. Please run this from the root directory of the Android repository you wish to set up.
-    fi
-    GERRIT_REMOTE=$(cat .git/config  | grep git://github.com | awk '{ print $NF }' | sed s#git://github.com/##g)
+    GERRIT_REMOTE=$(git config --get remote.github.projectname)
     if [ -z "$GERRIT_REMOTE" ]
     then
-        GERRIT_REMOTE=$(cat .git/config  | grep http://github.com | awk '{ print $NF }' | sed s#http://github.com/##g)
-        if [ -z "$GERRIT_REMOTE" ]
-        then
-          echo Unable to set up the git remote, are you in the root of the repo?
-          return 0
-        fi
+        echo Unable to set up the git remote, are you under a git repo?
+        return 0
     fi
-    CMUSER=`git config --get review.review.cyanogenmod.org.username`
+    CMUSER=$(git config --get review.review.cyanogenmod.org.username)
     if [ -z "$CMUSER" ]
     then
         git remote add cmremote ssh://review.cyanogenmod.org:29418/$GERRIT_REMOTE
@@ -1654,7 +1745,7 @@ function installboot()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 > /dev/null
     adb wait-for-online remount
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.ridon.device=$RIDON_BUILD");
     then
         adb push $OUT/boot.img /cache/
         for i in $OUT/system/lib/modules/*;
@@ -1699,7 +1790,7 @@ function installrecovery()
     sleep 1
     adb wait-for-online shell mount /system 2>&1 >> /dev/null
     adb wait-for-online remount
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.ridon.device=$RIDON_BUILD");
     then
         adb push $OUT/recovery.img /cache/
         adb shell dd if=/cache/recovery.img of=$PARTITION
@@ -2016,6 +2107,26 @@ function mka() {
     esac
 }
 
+function cmka() {
+    if [ ! -z "$1" ]; then
+        for i in "$@"; do
+            case $i in
+                bacon|otapackage|systemimage)
+                    mka installclean
+                    mka $i
+                    ;;
+                *)
+                    mka clean-$i
+                    mka $i
+                    ;;
+            esac
+        done
+    else
+        mka clean
+        mka
+    fi
+}
+
 function reposync() {
     case `uname -s` in
         Darwin)
@@ -2052,7 +2163,7 @@ function dopush()
         echo "Device Found."
     fi
 
-    if (adb shell cat /system/build.prop | grep -q "ro.cm.device=$RIDON_BUILD");
+    if (adb shell cat /system/build.prop | grep -q "ro.ridon.device=$RIDON_BUILD");
     then
     # retrieve IP and PORT info if we're using a TCP connection
     TCPIPPORT=$(adb devices | egrep '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+[^0-9]+' \
@@ -2127,7 +2238,7 @@ EOF
                 fi
                 adb shell restorecon "$TARGET"
             ;;
-            /system/priv-app/SystemUI.apk|/system/framework/*)
+            /system/priv-app/SystemUI/SystemUI.apk|/system/framework/*)
                 # Only need to stop services once
                 if ! $stop_n_start; then
                     adb shell stop

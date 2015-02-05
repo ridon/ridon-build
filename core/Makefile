@@ -813,7 +813,7 @@ endif
 # can be overridden for a particular device by putting a font.png in
 # its private recovery resources.
 
-ifneq (,$(filter xxxhdpi xxhdpi xhdpi,$(recovery_density)))
+ifneq (,$(filter 560dpi xxxhdpi xxhdpi xhdpi,$(recovery_density)))
 recovery_font := $(call project-path-for,recovery)/fonts/18x32.png
 else
 recovery_font := $(call project-path-for,recovery)/fonts/12x22.png
@@ -855,6 +855,11 @@ INTERNAL_RECOVERYIMAGE_ARGS := \
 
 # Assumes this has already been stripped
 ifdef BOARD_KERNEL_CMDLINE
+  ifdef BUILD_ENFORCE_SELINUX
+      ifneq (,$(filter androidboot.selinux=permissive androidboot.selinux=disabled, $(BOARD_KERNEL_CMDLINE)))
+          $(error "Trying to apply non-default selinux settings. Aborting")
+      endif
+  endif
   INTERNAL_RECOVERYIMAGE_ARGS += --cmdline "$(BOARD_KERNEL_CMDLINE)"
 endif
 ifdef BOARD_KERNEL_BASE
@@ -910,7 +915,7 @@ $(recovery_ramdisk): $(MKBOOTFS) $(MINIGZIP) $(RECOVERYIMAGE_EXTRA_DEPS) \
 	$(hide) mkdir -p $(TARGET_RECOVERY_OUT)
 	$(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/etc $(TARGET_RECOVERY_ROOT_OUT)/tmp
 	@echo -e ${CL_CYN}"Copying baseline ramdisk..."${CL_RST}
-	$(hide) cp -R $(TARGET_ROOT_OUT) $(TARGET_RECOVERY_OUT)
+	$(hide) cp -R $(TARGET_ROOT_OUT)/ $(TARGET_RECOVERY_OUT)
 	@echo -e ${CL_CYN}"Modifying ramdisk contents..."${CL_RST}
 	$(hide) rm -f $(TARGET_RECOVERY_ROOT_OUT)/init*.rc
 	$(hide) cp -f $(recovery_initrc) $(TARGET_RECOVERY_ROOT_OUT)/
@@ -1389,8 +1394,12 @@ built_ota_tools := \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch)/applypatch \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch_static)/applypatch_static \
 	$(call intermediates-dir-for,EXECUTABLES,check_prereq)/check_prereq \
-	$(call intermediates-dir-for,EXECUTABLES,sqlite3)/sqlite3 \
-	$(call intermediates-dir-for,EXECUTABLES,updater)/updater
+	$(call intermediates-dir-for,EXECUTABLES,sqlite3)/sqlite3
+ifeq ($(TARGET_ARCH),arm64)
+	built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater,,,32)/updater
+else
+	built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater)/updater
+endif
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_OTA_TOOLS := $(built_ota_tools)
 
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_RECOVERY_API_VERSION := $(RECOVERY_API_VERSION)
@@ -1448,6 +1457,9 @@ ifdef INSTALLED_2NDBOOTLOADER_TARGET
 	$(hide) $(ACP) \
 		$(INSTALLED_2NDBOOTLOADER_TARGET) $(zip_root)/RECOVERY/second
 endif
+ifdef BOARD_KERNEL_TAGS_OFFSET
+	$(hide) echo "$(BOARD_KERNEL_TAGS_OFFSET)" > $(zip_root)/RECOVERY/tags_offset
+endif
 ifdef BOARD_KERNEL_CMDLINE
 	$(hide) echo "$(BOARD_KERNEL_CMDLINE)" > $(zip_root)/RECOVERY/cmdline
 endif
@@ -1476,6 +1488,10 @@ endif
 ifdef INSTALLED_2NDBOOTLOADER_TARGET
 	$(hide) $(ACP) \
 		$(INSTALLED_2NDBOOTLOADER_TARGET) $(zip_root)/BOOT/second
+endif
+
+ifdef BOARD_KERNEL_TAGS_OFFSET
+	$(hide) echo "$(BOARD_KERNEL_TAGS_OFFSET)" > $(zip_root)/BOOT/tags_offset
 endif
 ifdef BOARD_KERNEL_CMDLINE
 	$(hide) echo "$(BOARD_KERNEL_CMDLINE)" > $(zip_root)/BOOT/cmdline
@@ -1563,7 +1579,11 @@ ifdef BUILD_NO
 	$(hide) echo "build_number=$(BUILD_NO)" >> $(zip_root)/META/misc_info.txt
 endif
 	$(call generate-userimage-prop-dictionary, $(zip_root)/META/misc_info.txt)
+ifeq ($(TARGET_RELEASETOOL_MAKE_RECOVERY_PATCH_SCRIPT),)
 	$(hide) ./build/tools/releasetools/make_recovery_patch $(zip_root) $(zip_root)
+else
+	$(hide) $(TARGET_RELEASETOOL_MAKE_RECOVERY_PATCH_SCRIPT) $(zip_root) $(zip_root)
+endif
 ifdef PRODUCT_DEFAULT_DEV_CERTIFICATE
 	$(hide) build/tools/getb64key.py $(PRODUCT_DEFAULT_DEV_CERTIFICATE).x509.pem > $(zip_root)/META/releasekey.txt
 else
@@ -1629,6 +1649,9 @@ endif
 
 ifneq ($(TARGET_UNIFIED_DEVICE),)
     $(INTERNAL_OTA_PACKAGE_TARGET): override_prop := --override_prop=true
+    ifeq ($(TARGET_OTA_ASSERT_DEVICE),)
+        $(INTERNAL_OTA_PACKAGE_TARGET): override_device := $(TARGET_DEVICE)
+    endif
 endif
 
 $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
@@ -1650,9 +1673,9 @@ RIDON_TARGET_PACKAGE := $(PRODUCT_OUT)/ridon-$(RIDON_VERSION).zip
 .PHONY: otapackage bacon
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
 bacon: otapackage
-	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(RIDON_TARGET_PACKAGE)
-	$(hide) $(MD5SUM) $(RIDON_TARGET_PACKAGE) > $(RIDON_TARGET_PACKAGE).md5sum
-	@echo -e ${CL_CYN}"Package Complete: $(RIDON_TARGET_PACKAGE)"${CL_RST}
+	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(CM_TARGET_PACKAGE)
+	$(hide) $(MD5SUM) $(CM_TARGET_PACKAGE) > $(CM_TARGET_PACKAGE).md5sum
+	@echo -e ${CL_CYN}"Package Complete: $(CM_TARGET_PACKAGE)"${CL_RST}
 
 endif    # recovery_fstab is defined
 endif    # TARGET_NO_KERNEL != true

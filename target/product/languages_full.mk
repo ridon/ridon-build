@@ -21,7 +21,6 @@
 
 # These are all the locales that have translations and are displayable
 # by TextView in this branch.
-PRODUCT_LOCALES := en_US id_ID
+PRODUCT_LOCALES := en_US in_ID
 
-# CyanogenMod
-PRODUCT_LOCALES += id_ID
+
